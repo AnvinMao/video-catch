@@ -7,11 +7,11 @@ class FilePreview {
         this.fileItems = [];         // 文件列表
         this.originalItems = [];     // 原始文件列表
         this.regexFilters = null;    // 正则过滤
-        this.catDownloadIsProcessing = false;   // 猫抓下载器是否正在处理
         this.pushDebounce = null;   // 添加文件防抖
         this.alertTimer = null;     // 提示信息定时器
         this.isDragging = false;    // 是否正在拖动
         this.previewHLS = null;     // 全屏预览视频HLS工具
+        this.catDownloadIsProcessing = false; // 猫抓下载器是否正在处理
 
         // 获取tabId
         const params = new URL(location.href).searchParams;
@@ -709,35 +709,25 @@ class FilePreview {
         chrome.runtime.sendMessage(chrome.runtime.id, { Message: "catDownload", data: data }, (message) => {
             // 不存在下载器或者下载器出错 新建一个下载器
             if (chrome.runtime.lastError || !message || message.message != "OK") {
-                this.createCatDownload(data, extra);
+                chrome.tabs.create({
+                    url: `/downloader.html?${new URLSearchParams({
+                        requestId: data.map(item => item.requestId).join(","),
+                        ...extra
+                    })}`,
+                    index: this.tab.index + 1,
+                    active: !G.downActive
+                }, (tab) => {
+                    const listener = (tabId, info) => {
+                        if (tab && tabId === tab.id && info.status === "complete") {
+                            chrome.tabs.onUpdated.removeListener(listener);
+                            this.catDownloadIsProcessing = false;
+                        }
+                    };
+                    chrome.tabs.onUpdated.addListener(listener);
+                });
                 return;
             }
             this.catDownloadIsProcessing = false;
-        });
-    }
-    /**
-     * 创建猫抓下载器
-     * @param {Object} data 
-     * @param {Object} extra 
-     */
-    createCatDownload(data, extra) {
-        const arg = {
-            url: `/downloader.html?${new URLSearchParams({
-                requestId: data.map(item => item.requestId).join(","),
-                ...extra
-            })}`,
-            index: this.tab.index + 1,
-            active: !G.downActive
-        };
-        chrome.tabs.create(arg, (tab) => {
-            // 循环获取tab.id 的状态 准备就绪 重置任务状态
-            const interval = setInterval(() => {
-                chrome.tabs.get(tab.id, (tab) => {
-                    if (tab.status != "complete") { return; }
-                    clearInterval(interval);
-                    this.catDownloadIsProcessing = false;
-                });
-            });
         });
     }
     /**
